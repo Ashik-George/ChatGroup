@@ -1,8 +1,9 @@
-# client.py - FIXED: No Message Duplication
+# client.py - COMPLETELY FIXED: No empty "You:" lines
 import socket
 import threading
 import sys
 import select
+import time
 
 class ChatClient:
     def __init__(self, host='localhost', port=5000):
@@ -11,6 +12,7 @@ class ChatClient:
         self.socket = None
         self.running = True
         self.username = ""
+        self.message_buffer = ""  # Buffer for partial input
 
     def receive_messages(self):
         """Continuously receive and display messages from the server"""
@@ -20,8 +22,9 @@ class ChatClient:
                 if not message:
                     break
                 
-                # Display received message (without echo)
-                print(f"\r{message}")
+                # Clear the current line and display the message
+                sys.stdout.write('\r\033[K')  # Clear line
+                print(f"\n{message}")
                 print("💬 You: ", end="", flush=True)
                 
             except:
@@ -46,7 +49,8 @@ class ChatClient:
             print(f"📡 Server: {self.host}:{self.port}")
             print("📝 Type /help for available commands")
             print("🚪 Type /quit to exit")
-            print("=" * 60 + "\n")
+            print("=" * 60)
+            print()
             print("💬 You: ", end="", flush=True)
             
             return True
@@ -63,7 +67,6 @@ class ChatClient:
         """Send a message to the server"""
         try:
             self.socket.send(message.encode('utf-8'))
-            # Don't echo here - server will broadcast
             return True
         except:
             print("\n❌ Failed to send message")
@@ -79,9 +82,11 @@ class ChatClient:
             try:
                 # Use select for non-blocking input
                 if select.select([sys.stdin], [], [], 0.1)[0]:
+                    # Read input
                     message = sys.stdin.readline().strip()
                     
                     if not message:
+                        # If empty input, just show prompt again without extra line
                         print("💬 You: ", end="", flush=True)
                         continue
                         
@@ -90,21 +95,9 @@ class ChatClient:
                         self.running = False
                         break
                     
-                    if message == '/help':
-                        self.send_message(message)
-                        print("""
-📚 Available Commands:
-  /help     - Show this help message
-  /users    - List all online users
-  /quit     - Leave the chat
-  /msg NAME MESSAGE - Send private message
-""")
-                        print("💬 You: ", end="", flush=True)
-                        continue
-                    
-                    # Send message - server will broadcast it back
+                    # Send the message
                     self.send_message(message)
-                    # Show "You:" after sending (no echo)
+                    # Show the prompt again on the same line
                     print("💬 You: ", end="", flush=True)
                 
             except KeyboardInterrupt:
