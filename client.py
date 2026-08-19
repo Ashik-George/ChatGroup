@@ -1,7 +1,9 @@
-# client.py - Chat Client with Command Line Port Support
+# client.py - Fixed: No Message Mixing
 import socket
 import threading
 import sys
+import time
+from datetime import datetime
 
 class ChatClient:
     def __init__(self, host='localhost', port=5000):
@@ -9,6 +11,9 @@ class ChatClient:
         self.port = port
         self.socket = None
         self.running = True
+        self.username = ""
+        self.message_queue = []  # Queue for incoming messages
+        self.lock = threading.Lock()  # Prevent race conditions
 
     def receive_messages(self):
         """Continuously receive and display messages from the server"""
@@ -17,8 +22,11 @@ class ChatClient:
                 message = self.socket.recv(1024).decode('utf-8')
                 if not message:
                     break
-                print(f"\n{message}")
-                print("💬 You: ", end="", flush=True)
+                
+                # Store message in queue
+                with self.lock:
+                    self.message_queue.append(message)
+                
             except:
                 break
         
@@ -26,22 +34,41 @@ class ChatClient:
             print("\n🔴 Disconnected from server")
             self.running = False
 
+    def display_messages(self):
+        """Display queued messages without interrupting input"""
+        with self.lock:
+            if not self.message_queue:
+                return
+            
+            # Save cursor position
+            print("\r", end="")
+            
+            # Display all queued messages
+            for msg in self.message_queue:
+                print(f"\n{msg}")
+            
+            # Clear queue
+            self.message_queue = []
+            
+            # Restore input prompt
+            print("💬 You: ", end="", flush=True)
+
     def connect(self):
         """Connect to the chat server"""
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((self.host, self.port))
             
-            # Start the receiving thread
+            # Start receiving thread
             receive_thread = threading.Thread(target=self.receive_messages, daemon=True)
             receive_thread.start()
             
-            print("=" * 50)
+            print("=" * 60)
             print("💬 CONNECTED TO CHAT SERVER!")
             print(f"📡 Server: {self.host}:{self.port}")
             print("📝 Type /help for available commands")
             print("🚪 Type /quit to exit")
-            print("=" * 50)
+            print("=" * 60 + "\n")
             
             return True
             
@@ -57,9 +84,11 @@ class ChatClient:
         """Send a message to the server"""
         try:
             self.socket.send(message.encode('utf-8'))
+            return True
         except:
-            print("❌ Failed to send message")
+            print("\n❌ Failed to send message")
             self.running = False
+            return False
 
     def run(self):
         """Main client loop"""
@@ -68,28 +97,44 @@ class ChatClient:
         
         while self.running:
             try:
-                message = input("💬 You: ")
-                if not message:
-                    continue
-                    
-                if message == '/quit':
-                    self.send_message(message)
-                    self.running = False
-                    break
+                # Check for new messages
+                self.display_messages()
                 
-                self.send_message(message)
+                # Get user input with timeout
+                # Use non-blocking input or timer
+                import select
+                import sys
+                
+                # Check if input is available (non-blocking)
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    message = sys.stdin.readline().strip()
+                    
+                    if not message:
+                        continue
+                        
+                    if message == '/quit':
+                        self.send_message(message)
+                        self.running = False
+                        break
+                    
+                    # Send message with clear formatting
+                    self.send_message(message)
+                    # Show the message was sent
+                    print(f"\r💬 You: {message}")
+                    print("💬 You: ", end="", flush=True)
                 
             except KeyboardInterrupt:
                 print("\n👋 Goodbye!")
                 self.running = False
                 break
-            except:
+            except Exception as e:
+                print(f"\n⚠️ Error: {e}")
                 continue
         
         # Clean up
         if self.socket:
             self.socket.close()
-        print("👋 Disconnected from chat")
+        print("\n👋 Disconnected from chat")
 
 def show_usage():
     """Display usage information"""
