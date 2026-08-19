@@ -1,4 +1,4 @@
-# client.py - Day 2: Interactive Chat Client
+# client.py - Chat Client with Command Line Port Support
 import socket
 import threading
 import sys
@@ -9,7 +9,6 @@ class ChatClient:
         self.port = port
         self.socket = None
         self.running = True
-        self.name = ""
 
     def receive_messages(self):
         """Continuously receive and display messages from the server"""
@@ -39,6 +38,7 @@ class ChatClient:
             
             print("=" * 50)
             print("💬 CONNECTED TO CHAT SERVER!")
+            print(f"📡 Server: {self.host}:{self.port}")
             print("📝 Type /help for available commands")
             print("🚪 Type /quit to exit")
             print("=" * 50)
@@ -91,10 +91,49 @@ class ChatClient:
             self.socket.close()
         print("👋 Disconnected from chat")
 
+def show_usage():
+    """Display usage information"""
+    print("""
+╔══════════════════════════════════════════════════════════════╗
+║  💬 CHATGROUP CLIENT                                       ║
+╠══════════════════════════════════════════════════════════════╣
+║                                                              ║
+║  USAGE:                                                      ║
+║    python3 client.py [HOST] [PORT]                          ║
+║                                                              ║
+║  EXAMPLES:                                                   ║
+║    python3 client.py                 # localhost:5000       ║
+║    python3 client.py 192.168.1.100   # Connect to server    ║
+║    python3 client.py 192.168.1.100 5001                     ║
+║                                                              ║
+║  DEFAULT HOST: localhost                                    ║
+║  DEFAULT PORT: 5000                                         ║
+║                                                              ║
+╚══════════════════════════════════════════════════════════════╝
+    """)
+
 if __name__ == "__main__":
     # Parse command line arguments
-    host = sys.argv[1] if len(sys.argv) > 1 else 'localhost'
-    port = int(sys.argv[2]) if len(sys.argv) > 2 else 5000
+    host = 'localhost'
+    port = 5000
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] in ['--help', '-h']:
+            show_usage()
+            sys.exit(0)
+        host = sys.argv[1]
+        
+    if len(sys.argv) > 2:
+        try:
+            port = int(sys.argv[2])
+            if port < 1 or port > 65535:
+                print("❌ Port must be between 1 and 65535")
+                show_usage()
+                sys.exit(1)
+        except ValueError:
+            print("❌ Invalid port number. Please enter a number.")
+            show_usage()
+            sys.exit(1)
     
     client = ChatClient(host, port)
     client.run()
