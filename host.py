@@ -1,4 +1,4 @@
-# host.py - Enhanced with Better Message Formatting
+# host.py - FIXED: No Echo Back to Sender
 import socket
 import threading
 import sys
@@ -14,20 +14,20 @@ class ChatServer:
         self.server_socket = None
         self.running = True
         self.host_name = "👑 Host"
-        self.message_lock = threading.Lock()  # Prevent message mixing
+        self.message_lock = threading.Lock()
 
     def broadcast(self, message, sender_socket=None):
-        """Send a message to all connected clients except the sender"""
+        """Send a message to all connected clients EXCEPT the sender"""
         with self.message_lock:
             for client in self.clients:
-                if client != sender_socket:
+                if client != sender_socket:  # KEY: Don't send to sender
                     try:
                         client.send(message.encode('utf-8'))
                     except:
                         self.remove_client(client)
 
     def broadcast_to_all(self, message):
-        """Send a message to ALL connected clients"""
+        """Send a message to ALL connected clients (for host messages)"""
         with self.message_lock:
             for client in self.clients:
                 try:
@@ -40,13 +40,13 @@ class ChatServer:
         timestamp = datetime.now().strftime("%H:%M")
         
         if msg_type == 'system':
-            return f"\n💬 [{timestamp}] {content}"
+            return f"[{timestamp}] 💬 {content}"
         elif msg_type == 'private':
-            return f"\n📩 [{timestamp}] {user}: {content}"
+            return f"[{timestamp}] 📩 {user}: {content}"
         elif msg_type == 'host':
-            return f"\n👑 [{timestamp}] Host: {content}"
+            return f"[{timestamp}] 👑 Host: {content}"
         else:
-            return f"\n💬 [{timestamp}] {user}: {content}"
+            return f"[{timestamp}] 💬 {user}: {content}"
 
     def remove_client(self, client_socket):
         """Remove a client from the server"""
@@ -81,12 +81,12 @@ class ChatServer:
         welcome = f"✅ Welcome {name}! Type /help for commands.\n"
         client_socket.send(welcome.encode('utf-8'))
         
-        # Broadcast join message
+        # Broadcast join message (exclude sender)
         join_msg = self.format_message("System", f"🟢 {name} has joined the chat!", 'system')
         self.broadcast(join_msg, client_socket)
         print(f"🟢 {name} joined the chat")
         
-        # Send current users list
+        # Send current users list to the new client
         user_list = ", ".join(self.names.values())
         client_socket.send(f"👥 Online users: {user_list}\n".encode('utf-8'))
         
@@ -101,9 +101,9 @@ class ChatServer:
                 if message.startswith('/'):
                     self.handle_command(client_socket, message)
                 else:
-                    # Format and broadcast the message
+                    # Format and broadcast the message (exclude sender)
                     formatted_msg = self.format_message(name, message, 'message')
-                    self.broadcast(formatted_msg, client_socket)
+                    self.broadcast(formatted_msg, client_socket)  # KEY: exclude sender
                     print(f"💬 {name}: {message}")
                     
             except:
@@ -136,7 +136,6 @@ class ChatServer:
             parts = command[5:].split(' ', 1)
             if len(parts) == 2:
                 target_name, private_msg = parts
-                # Find target client
                 for sock, name in self.names.items():
                     if name == target_name:
                         formatted = self.format_message(name, private_msg, 'private')
@@ -208,7 +207,7 @@ class ChatServer:
                             sock.send("🚫 You have been kicked by the host.".encode('utf-8'))
                             self.remove_client(sock)
                             system_msg = self.format_message("System", f"👢 {target_name} was kicked by the host.", 'system')
-                            self.broadcast(system_msg)
+                            self.broadcast(system_msg, sock)
                             print(f"👢 Kicked {target_name}")
                             break
                     else:
@@ -222,7 +221,7 @@ class ChatServer:
                     print(user_list)
                     continue
                 
-                # If it's a regular message, format and broadcast it
+                # If it's a regular message, format and broadcast to ALL
                 if self.clients:
                     formatted_msg = self.format_message(self.host_name, message, 'host')
                     self.broadcast_to_all(formatted_msg)
@@ -238,7 +237,7 @@ class ChatServer:
                 print(f"⚠️ Error: {e}")
 
     def start_server(self):
-        """Start the chat server with host chat capability"""
+        """Start the chat server"""
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -253,7 +252,7 @@ class ChatServer:
             print("💡 Press Ctrl+C to stop the server")
             print("=" * 60)
             
-            # Start the host chat loop in a separate thread
+            # Start the host chat loop
             host_thread = threading.Thread(target=self.host_chat_loop, daemon=True)
             host_thread.start()
             
@@ -261,7 +260,6 @@ class ChatServer:
             while self.running:
                 try:
                     client_socket, address = self.server_socket.accept()
-                    # Handle each client in a new thread
                     client_thread = threading.Thread(
                         target=self.handle_client,
                         args=(client_socket, address),
@@ -295,75 +293,20 @@ def signal_handler(sig, frame):
     print("\n🛑 Shutting down server...")
     sys.exit(0)
 
-def show_usage():
-    """Display usage information"""
-    print("""
-╔══════════════════════════════════════════════════════════════╗
-║  🖥️  CHATGROUP HOST SERVER                                 ║
-╠══════════════════════════════════════════════════════════════╣
-║                                                              ║
-║  USAGE:                                                      ║
-║    python3 host.py [PORT]                                   ║
-║                                                              ║
-║  EXAMPLES:                                                   ║
-║    python3 host.py          # Start on default port 5000   ║
-║    python3 host.py 5001     # Start on port 5001           ║
-║    python3 host.py 8080     # Start on port 8080           ║
-║                                                              ║
-║  DEFAULT PORT: 5000                                         ║
-║                                                              ║
-╚══════════════════════════════════════════════════════════════╝
-    """)
-
 if __name__ == "__main__":
-    # Set up signal handler for Ctrl+C
     signal.signal(signal.SIGINT, signal_handler)
     
-    # Parse command line arguments
     port = 5000
-    
     if len(sys.argv) > 1:
-        if sys.argv[1] in ['--help', '-h']:
-            show_usage()
-            sys.exit(0)
         try:
             port = int(sys.argv[1])
-            if port < 1 or port > 65535:
-                print("❌ Port must be between 1 and 65535")
-                show_usage()
-                sys.exit(1)
         except ValueError:
-            print("❌ Invalid port number. Please enter a number.")
-            show_usage()
+            print("❌ Invalid port number")
             sys.exit(1)
     
-    # Get local IP address
-    def get_local_ip():
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except:
-            return '127.0.0.1'
-    
-    local_ip = get_local_ip()
-    
-    print("\n" + "=" * 60)
-    print(f"🚀 Starting Chat Server on port {port}")
-    print(f"📡 Local IP: {local_ip}")
-    print(f"🔗 Connect with: python3 client.py {local_ip} {port}")
-    print("=" * 60 + "\n")
-    
-    # Create and start server
     server = ChatServer(host='0.0.0.0', port=port)
-    
     try:
         server.start_server()
     except KeyboardInterrupt:
         print("\n👋 Goodbye!")
         sys.exit(0)
-    except Exception as e:
-        print(f"❌ Fatal error: {e}")
-        sys.exit(1)
