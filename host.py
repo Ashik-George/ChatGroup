@@ -1,35 +1,52 @@
-# host.py - Complete Chat Server with Command Line Port Support
+# host.py - Enhanced with Better Message Formatting
 import socket
 import threading
 import sys
 import signal
+from datetime import datetime
 
 class ChatServer:
     def __init__(self, host='0.0.0.0', port=5000):
         self.host = host
         self.port = port
-        self.clients = []  # List to store all connected clients
-        self.names = {}    # Dictionary to store client names {socket: name}
+        self.clients = []
+        self.names = {}
         self.server_socket = None
         self.running = True
         self.host_name = "👑 Host"
+        self.message_lock = threading.Lock()  # Prevent message mixing
 
     def broadcast(self, message, sender_socket=None):
         """Send a message to all connected clients except the sender"""
-        for client in self.clients:
-            if client != sender_socket:
+        with self.message_lock:
+            for client in self.clients:
+                if client != sender_socket:
+                    try:
+                        client.send(message.encode('utf-8'))
+                    except:
+                        self.remove_client(client)
+
+    def broadcast_to_all(self, message):
+        """Send a message to ALL connected clients"""
+        with self.message_lock:
+            for client in self.clients:
                 try:
                     client.send(message.encode('utf-8'))
                 except:
                     self.remove_client(client)
 
-    def broadcast_to_all(self, message):
-        """Send a message to ALL connected clients"""
-        for client in self.clients:
-            try:
-                client.send(message.encode('utf-8'))
-            except:
-                self.remove_client(client)
+    def format_message(self, user, content, msg_type='message'):
+        """Format message with clear structure"""
+        timestamp = datetime.now().strftime("%H:%M")
+        
+        if msg_type == 'system':
+            return f"\n💬 [{timestamp}] {content}"
+        elif msg_type == 'private':
+            return f"\n📩 [{timestamp}] {user}: {content}"
+        elif msg_type == 'host':
+            return f"\n👑 [{timestamp}] Host: {content}"
+        else:
+            return f"\n💬 [{timestamp}] {user}: {content}"
 
     def remove_client(self, client_socket):
         """Remove a client from the server"""
@@ -38,7 +55,8 @@ class ChatServer:
             if client_socket in self.names:
                 name = self.names[client_socket]
                 del self.names[client_socket]
-                self.broadcast(f"🔴 {name} has left the chat.", client_socket)
+                system_msg = self.format_message("System", f"🔴 {name} has left the chat.", 'system')
+                self.broadcast(system_msg, client_socket)
                 print(f"🔴 {name} disconnected")
             client_socket.close()
 
@@ -60,10 +78,12 @@ class ChatServer:
         self.clients.append(client_socket)
         
         # Welcome message
-        client_socket.send(f"✅ Welcome {name}! Type /help for commands.\n".encode('utf-8'))
+        welcome = f"✅ Welcome {name}! Type /help for commands.\n"
+        client_socket.send(welcome.encode('utf-8'))
         
         # Broadcast join message
-        self.broadcast(f"🟢 {name} has joined the chat!", client_socket)
+        join_msg = self.format_message("System", f"🟢 {name} has joined the chat!", 'system')
+        self.broadcast(join_msg, client_socket)
         print(f"🟢 {name} joined the chat")
         
         # Send current users list
@@ -81,8 +101,9 @@ class ChatServer:
                 if message.startswith('/'):
                     self.handle_command(client_socket, message)
                 else:
-                    # Broadcast the message to everyone
-                    self.broadcast(f"💬 {name}: {message}", client_socket)
+                    # Format and broadcast the message
+                    formatted_msg = self.format_message(name, message, 'message')
+                    self.broadcast(formatted_msg, client_socket)
                     print(f"💬 {name}: {message}")
                     
             except:
@@ -118,7 +139,8 @@ class ChatServer:
                 # Find target client
                 for sock, name in self.names.items():
                     if name == target_name:
-                        sock.send(f"📩 [Private] {name}: {private_msg}".encode('utf-8'))
+                        formatted = self.format_message(name, private_msg, 'private')
+                        sock.send(formatted.encode('utf-8'))
                         client_socket.send(f"📤 [Private] to {target_name}: {private_msg}".encode('utf-8'))
                         return
                 client_socket.send(f"❌ User '{target_name}' not found.".encode('utf-8'))
@@ -168,7 +190,8 @@ class ChatServer:
                         found = False
                         for sock, name in self.names.items():
                             if name == target_name:
-                                sock.send(f"📩 [Private] {self.host_name}: {private_msg}".encode('utf-8'))
+                                formatted = self.format_message(self.host_name, private_msg, 'private')
+                                sock.send(formatted.encode('utf-8'))
                                 print(f"📤 [Private] to {target_name}: {private_msg}")
                                 found = True
                                 break
@@ -184,7 +207,8 @@ class ChatServer:
                         if name == target_name:
                             sock.send("🚫 You have been kicked by the host.".encode('utf-8'))
                             self.remove_client(sock)
-                            self.broadcast(f"👢 {target_name} was kicked by the host.")
+                            system_msg = self.format_message("System", f"👢 {target_name} was kicked by the host.", 'system')
+                            self.broadcast(system_msg)
                             print(f"👢 Kicked {target_name}")
                             break
                     else:
@@ -198,9 +222,10 @@ class ChatServer:
                     print(user_list)
                     continue
                 
-                # If it's a regular message, broadcast it
+                # If it's a regular message, format and broadcast it
                 if self.clients:
-                    self.broadcast_to_all(f"💬 {self.host_name}: {message}")
+                    formatted_msg = self.format_message(self.host_name, message, 'host')
+                    self.broadcast_to_all(formatted_msg)
                     print(f"💬 {self.host_name}: {message}")
                 else:
                     print("⚠️ No clients connected. Your message was not sent.")
@@ -220,13 +245,13 @@ class ChatServer:
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(10)
             
-            print("=" * 50)
+            print("=" * 60)
             print("🖥️  CHAT SERVER STARTED!")
             print(f"📡 Listening on {self.host}:{self.port}")
             print(f"👑 Your name: {self.host_name}")
             print("💡 You can chat from this terminal too!")
             print("💡 Press Ctrl+C to stop the server")
-            print("=" * 50)
+            print("=" * 60)
             
             # Start the host chat loop in a separate thread
             host_thread = threading.Thread(target=self.host_chat_loop, daemon=True)
@@ -256,7 +281,6 @@ class ChatServer:
     def stop_server(self):
         """Stop the server and clean up"""
         self.running = False
-        # Close all client connections
         for client in self.clients[:]:
             try:
                 client.close()
@@ -296,9 +320,12 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     
     # Parse command line arguments
-    port = 5000  # Default port
+    port = 5000
     
     if len(sys.argv) > 1:
+        if sys.argv[1] in ['--help', '-h']:
+            show_usage()
+            sys.exit(0)
         try:
             port = int(sys.argv[1])
             if port < 1 or port > 65535:
@@ -309,11 +336,6 @@ if __name__ == "__main__":
             print("❌ Invalid port number. Please enter a number.")
             show_usage()
             sys.exit(1)
-    
-    # Show usage if --help or -h is passed
-    if len(sys.argv) > 1 and sys.argv[1] in ['--help', '-h']:
-        show_usage()
-        sys.exit(0)
     
     # Get local IP address
     def get_local_ip():
